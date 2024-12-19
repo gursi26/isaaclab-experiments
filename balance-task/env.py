@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import torch
+import torch.nn.functional as F
 from collections.abc import Sequence
 
 from omni.isaac.lab_assets.cartpole import CARTPOLE_CFG
@@ -13,7 +14,7 @@ from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.sim import SimulationCfg
 from omni.isaac.lab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from omni.isaac.lab.utils import configclass
-from omni.isaac.lab.utils.math import sample_uniform
+from omni.isaac.lab.utils.math import sample_uniform, quat_from_euler_xyz, euler_xyz_from_quat
 
 def _get_plate_config():
 	side_length = 1.0
@@ -56,7 +57,7 @@ def _get_ball_config():
 
 @configclass
 class PlateBallEnvCfg(DirectRLEnvCfg):
-	num_envs = 16
+	num_envs = 64
 	env_spacing = 2.0
 	dt = 1 / 120
 	observation_space = 100
@@ -75,6 +76,7 @@ class PlateBallEnvCfg(DirectRLEnvCfg):
 	plate_cfg: RigidObjectCfg = _get_plate_config()
 	ball_cfg: RigidObjectCfg = _get_ball_config()
 	fall_threshold = 1.0
+	action_damping = 0.02
 
 	# scene
 	scene: InteractiveSceneCfg = InteractiveSceneCfg(
@@ -106,17 +108,28 @@ class PlateBallEnv(DirectRLEnv):
 		light_cfg.func("/World/Light", light_cfg)
 
 	def _pre_physics_step(self, actions: torch.Tensor) -> None:
-		pass
+		self.new_state = self.plate.data.root_state_w.clone()
+		curr_rot_angles = torch.concat([x.unsqueeze(-1) for x in euler_xyz_from_quat(self.new_state[:, 3:7])], dim=-1)
+		new_angles = curr_rot_angles + actions * self.cfg.action_damping
+		self.new_state[:, 3:7] = quat_from_euler_xyz(new_angles[:, 0], new_angles[:, 1], new_angles[:, 2])
 
-	def _apply_action(self) -> None:
 		self.ball.update(self.cfg.dt)
 		self.plate.update(self.cfg.dt)
 
+	def _apply_action(self) -> None:
+		self.plate.write_root_state_to_sim(self.new_state)
+
 	def _get_observations(self) -> dict:
-		return {"policy": torch.randn(self.num_envs, 100)}
+		ball_pos = self.ball.data.root_pos_w.clone()
+		plate_rot = self.plate.data.root_quat_w.clone()
+		plate_rot = torch.concat([x.unsqueeze(-1) for x in euler_xyz_from_quat(plate_rot)], dim=-1)
+		return {"policy": torch.concat([ball_pos, plate_rot], dim=-1)}
 
 	def _get_rewards(self) -> torch.Tensor:
-		return 100.0
+		plate_pos = self.plate.data.root_pos_w.clone()
+		ball_pos = self.ball.data.root_pos_w.clone()
+		loss = F.mse_loss(plate_pos, ball_pos, reduction = "sum")
+		return -loss
 
 	def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
 		out_of_bounds = self.ball.data.root_pos_w[:, -1] < self.cfg.fall_threshold

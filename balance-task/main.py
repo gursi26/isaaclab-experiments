@@ -16,10 +16,11 @@ from env import PlateBallEnvCfg, PlateBallEnv
 def run_simulator(env):
 	count = 0
 	while simulation_app.is_running():
-		obs, rew, reset_term, reset_trunc, extras = env.step(torch.ones(env.cfg.num_envs, 1, device="cuda"))
+		rand_delta = torch.randn(env.num_envs, 3, device="cuda")
+		obs, rew, reset_term, reset_trunc, extras = env.step(rand_delta)
 		# print("-" * 50)
 		# print(obs["policy"].shape)
-		# print(rew)
+		print(rew)
 		# print(reset_term)
 		# print(reset_trunc)
 		# print(extras)
