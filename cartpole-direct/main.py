@@ -11,25 +11,27 @@ import torch
 import torch.nn.functional as F
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.envs import DirectRLEnv
-from env import PlateBallEnvCfg, PlateBallEnv
+from env import CartpoleEnvCfg, CartpoleEnv
 
 def run_simulator(env):
 	count = 0
 	while simulation_app.is_running():
+		if count % 500 == 0:
+			count = 0
+			env.reset()
 		obs, rew, reset_term, reset_trunc, extras = env.step(torch.ones(env.cfg.num_envs, 1, device="cuda"))
-		# print("-" * 50)
-		# print(obs["policy"].shape)
-		# print(rew)
-		# print(reset_term)
-		# print(reset_trunc)
-		# print(extras)
-		# print("-" * 50)
+		print("-" * 50)
+		print(obs["policy"].shape)
+		print(reset_term)
+		print(reset_trunc)
+		print(extras)
+		print("-" * 50)
 		count += 1
 
 
 def main():
-	env_cfg = PlateBallEnvCfg()
-	env = PlateBallEnv(env_cfg)
+	env_cfg = CartpoleEnvCfg()
+	env = CartpoleEnv(env_cfg)
 	env.reset()
 	run_simulator(env)
 
