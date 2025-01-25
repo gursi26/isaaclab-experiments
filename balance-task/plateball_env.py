@@ -5,7 +5,6 @@ import torch
 import torch.nn.functional as F
 from collections.abc import Sequence
 
-from omni.isaac.lab_assets.cartpole import CARTPOLE_CFG
 
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.sensors import ContactSensorCfg, ContactSensor
@@ -15,7 +14,7 @@ from omni.isaac.lab.scene import InteractiveSceneCfg
 from omni.isaac.lab.sim import SimulationCfg
 from omni.isaac.lab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from omni.isaac.lab.utils import configclass
-from omni.isaac.lab.utils.math import sample_uniform, quat_from_euler_xyz, euler_xyz_from_quat
+from omni.isaac.lab.utils.math import quat_from_euler_xyz, euler_xyz_from_quat
 
 def _get_plate_config():
 	side_length = 1.0

@@ -11,9 +11,10 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 import omni.isaac.lab.sim as sim_utils
+import omni.isaac.lab.utils.math as math_utils
 import omni.isaac.core.utils.prims as prim_utils
 from omni.isaac.lab.sim import SimulationContext, SimulationCfg
-from omni.isaac.lab.assets import RigidObject, RigidObjectCfg
+from omni.isaac.lab.assets import RigidObject, RigidObjectCfg, DeformableObject, DeformableObjectCfg
 
 # function to initialize the scene
 def spawn_scene(sim_ctx):
@@ -28,46 +29,44 @@ def spawn_scene(sim_ctx):
 	light_cfg = sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
 	light_cfg.func("/World/Light", light_cfg)
 
-
 	# spawn multiple groups, each with robot and object (parallel training)
 	origins = create_grid(10, spacing=3.0)
 	for i, origin in enumerate(origins):
 		prim_utils.create_prim(f"/World/Origin{i}", "Xform", translation=origin)
 
 	# Rigid Object
-	cone_cfg = RigidObjectCfg(
+	cone_cfg = DeformableObjectCfg(
 		prim_path="/World/Origin.*/Cone", 	# regex path to spawn cone in all groups
-		spawn=sim_utils.ConeCfg(			# ConeCfg is wrapped inside RigidObjectCfg
-			radius=0.1,
-			height=0.2,
-			rigid_props=sim_utils.RigidBodyPropertiesCfg(),
-			mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
-			collision_props=sim_utils.CollisionPropertiesCfg(),
+		spawn=sim_utils.MeshConeCfg(			# ConeCfg is wrapped inside RigidObjectCfg
+			radius=0.5,
+			height=1.0,
+			deformable_props=sim_utils.DeformableBodyPropertiesCfg(),
+			physics_material=sim_utils.DeformableBodyMaterialCfg(
+				poissons_ratio=0.4,
+				youngs_modulus=1e5
+			),
 			visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0), metallic=0.2),
+			# mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+			# collision_props=sim_utils.CollisionPropertiesCfg(),
 		),
-		init_state=RigidObjectCfg.InitialStateCfg(),
+		init_state=DeformableObjectCfg.InitialStateCfg(),
 	)
-	cone_object = RigidObject(cfg=cone_cfg)
+	cone_object = DeformableObject(cfg=cone_cfg)
 	scene_entities = {"cone": cone_object}
 	return scene_entities, origins
 
 # function that runs every k iterations to reset the object origins and rotations
 def reset_objects(entities, origins):
-	root_state = entities["cone"].data.default_root_state.clone()
-	N_objects = root_state.shape[0]
-	print(root_state.shape)
+	nodal_state = entities["cone"].data.default_nodal_state_w.clone()
+	N_objects = nodal_state.shape[0]
 
 	# writing origins. root state is absolute coords so we offset from the origin
-	root_state[:, :3] = origins
-	root_state[:, :2] += (torch.rand((N_objects, 2), device="cuda") * 2) - 1.0
-	root_state[:, 2] = (torch.rand(N_objects, device="cuda") * 3) + 1.0
+	pos_w = torch.rand(N_objects, 3, device="cuda") * 0.1 + origins
+	pos_w[:, -1] += 5.0
+	quat_w = math_utils.random_orientation(N_objects, device="cuda")
+	nodal_state[..., :3] = entities["cone"].transform_nodal_pos(nodal_state[..., :3], pos_w, quat_w)
 
-	# writing rotation quaternions
-	rand_rotation = torch.randn(N_objects, 4, device="cuda")
-	rand_rotation = rand_rotation / rand_rotation.norm(dim=-1, keepdim=True)
-	root_state[:, 3:7] = rand_rotation
-
-	entities["cone"].write_root_state_to_sim(root_state)
+	entities["cone"].write_nodal_state_to_sim(nodal_state)
 	entities["cone"].reset()
 	print("[INFO]: Resetting object state")
 
@@ -77,6 +76,7 @@ def run_simulator(sim, entities, origins):
 	sim_step = 0
 	sim_time = 0.0
 	sim_dt = sim.get_physics_dt()
+	origins = origins.to("cuda")
 
 	while simulation_app.is_running():
 		if sim_step % 300 == 0:
